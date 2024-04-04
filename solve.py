@@ -1,54 +1,41 @@
-def gen_seed(s):
-    i, j, k = 0, len(s), 0
-    while i < j:
-        k = k + ord(s[i])
-        i += 1
-    i = 0
-    while i < j:
-        if (i % 2) != 0:
-            k = k - (ord(s[i]) * (j - i + 1))            
-        else:
-            k = k + (ord(s[i]) * (j - i + 1))
-        k = k % 2147483647
-        i += 1
-    k = (k * j) % 2147483647
-    return k
+from z3 import *
+import string
 
-def reseed(s):
-    return s * 214013 + 2531011
+def to_words(chars):
+    return [Concat(chars[i+1], chars[i]) for i in range(0, 32, 2)]
     
-def encrypt(s, msg):
-    assert s <= 2**32
-    c, d = 0, s
-    enc, l = b'', len(msg)
-    while c < l:
-        d = reseed(d)
-        enc += (msg[c] ^ ((d >> 16) & 0xff)).to_bytes(1, 'big')
-        c += 1
-    return enc
+def to_dwords(chars):
+    return [Concat(chars[i+3], chars[i+2], chars[i+1], chars[i]) for i in range(0, 32, 4)]
 
-def decrypt(s, enc):
-    assert s <= 2**32
-    c, d = 0, s
-    msg, l = b'', len(enc)
-    while c < l:
-        d = reseed(d)
-        msg += (enc[c] ^ ((d >> 16) & 0xff)).to_bytes(1, 'big')
-        c += 1
-    return msg
+def to_qwords(chars):
+    return [Concat(chars[i+7], chars[i+6], chars[i+5], chars[i+4], chars[i+3], chars[i+2], chars[i+1], chars[i]) for i in range(0, 32, 8)]
 
-enc = b'T\xf0\xa9\x15I\x99\xbb\x02\xda\x88\x8a\xfe9\xc0z\x9f\xcc\xa0\xa4\xa1\x02\x05\xe3\xa6/\x063\x9e\x13W\xe5\xf1\xf6\xfd3\x8c\x07b-\xa8\xf7\\0\x9c|\xf6fF\xe2c@\xe2\xbf\xadV$>\xf8d\x9e\x87Y\xdb\x9d]\x01\xa4\xeb\x94P\xddXT6\x8aF\xd7\xf7>\xed\x1d\xe4a\xe3!g\t\xdfFEhu\xba\x83q\x84\xfd\xf0\xdc\xe8\x89l\x15|\x1bc\xbe/\x81[\xa6b^\xbb'
-flag_is = binascii.hexlify(enc)[:28]
-#7135fe1db74974f3fc5b20447443 - 'flag is'
+
+s = Solver()
+
+allowed_chars = list(string.ascii_letters+string.punctuation+string.digits)
+
+chars = [BitVec(f"char[{i}]", 8) for i in range(32)]
+
+words = to_words(chars)
+dwords = to_dwords(chars)
+qwords = to_qwords(chars)
+
+
+for byte in chars:
+    s.add(Or([byte == ord(ch) for ch in allowed_chars]))
     
-for seeds in range(1, 2**32 + 1):
-    enc2 = encrypt(seeds, binascii.hexlify(bytes(("flag is").encode('utf-8'))))
-    if binascii.hexlify(enc2) == flag_is: 
-        seed = seeds
-        break
-for char in range(256):
-    dec = decrypt(seed, enc)
-    if all(32 <= byte <= 126 or byte == 10 or byte == 13 for byte in dec):
-        print(seed)
-        print(f"Decrypted message: {binascii.unhexlify(dec.decode('utf-8'))}")
-    seed += 1
+s.add(words[0]+words[2]-words[5]+words[7]+words[10] == BitVecVal(60760, 16))
+s.add(qwords[0]^qwords[3] == BitVecVal(2965938363618105624, 64))
+s.add(words[11]-words[3]+words[0]+words[13]-words[15] == BitVecVal(19597, 16))
+s.add(dwords[1]-2*dwords[4]+dwords[3]+dwords[0] == BitVecVal(1282873082, 32))
+s.add(qwords[1]^qwords[2] == BitVecVal(1692449083687022, 64))
+s.add(words[1]+words[4]-words[6]+words[8]+words[9]-3*words[12] == BitVecVal(18582,16))
+s.add(4*dwords[2]-2*dwords[6]-dwords[7]-dwords[5] == BitVecVal(1126845477,32))
+
+
+print(s.check())
+m = s.model()
+
+res = ''.join([chr(m.evaluate(chars[i]).as_long()) for i in range(32)])
+print(res)
